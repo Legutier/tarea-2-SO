@@ -1,8 +1,8 @@
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>    
+
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <sys/shm.h>
 
+#include "tablero.c"
 
 void* create_shared_memory(size_t size) {
   // Our memory buffer will be readable and writable:
@@ -19,32 +20,52 @@ void* create_shared_memory(size_t size) {
   // anonymous (meaning third-party processes cannot obtain an address for it),
   // so only this process and its children will be able to use it:
   int visibility = MAP_SHARED | MAP_ANONYMOUS;
-
-  // The remaining parameters to `mmap()` are not important for this use case,
-  // but the manpage for `mmap` explains their purpose.
   return mmap(NULL, size, protection, visibility, -1, 0);
 }
 
 int main(){
-    pid_t pid;
+    // variables para los procesos
+    pid_t pid, wpid;
+
+    time_t t;   // variable time_t para evitar que los random usen la misma seed constantemente
 
     int turno;
-    int roll; // almacenar valor númerico (int) de los dados
+    int roll; // almacenar valor númerico de los dados
     int i;    
-    int pos = 0;
+    int oldPos = 0;
+    int newPos = 0;
+    int status = 0; // usada para esperar que los hijos terminen sus procesos.
+    int sizeBoard = 28;
+
 
     char id[5]; // almacenar el n° correspondiente al turno de cada jugador
+    char lock[] = "0";
     char fin[] = "5";
 
-    // variables en memoria compartida, solo aprendí a compartir strings, so... F, igual es re facil hacer las conversiones.
+    // variables usadas para memoria compartida
     char player[5];
     char validation[5];
-    char dados[5];
-    char position[5];
+    char position[5];  
+
+    int idTablero;
+    struct tablero *Tablero;
     // -------------------------------
-    void* shmem = create_shared_memory(5);  // Transmite los turnos (player) y las validaciones (validation) (respuesta padre-hijo)
-    void* shmem2 = create_shared_memory(5); // Transmite los números de los dados
+    // Crea espacios de memoria compartida para variables de jugadores
+    void* shmem = create_shared_memory(5);  // Transmite los turnos (player) 
+    void* shmem2 = create_shared_memory(5); // Transmite la validación de los jugadores
     void* shmem3 = create_shared_memory(5); // Transmite la posición (position) alcanzada por los jugadores
+    
+    
+    // guarda una dirección de memoria con tamaño suficiente para el struct tablero
+    // http://www.csl.mtu.edu/cs4411.ck/www/NOTES/process/shm/shmget.html 
+    idTablero = shmget(IPC_PRIVATE,sizeof(struct tablero),IPC_CREAT | 0666); 
+
+    // Asigna la dirección de memoria antes guardada para el struct tablero
+    Tablero = (struct tablero*) shmat(idTablero, 0, 0);
+
+    // Inicializa el tablero con los jugadores en la posición de partida.
+    init(Tablero);
+    printTablero(Tablero);
 
     // inicialización de los turnos
     strcpy(player, "-1"); 
@@ -59,34 +80,24 @@ int main(){
 
     if (pid > 0){
         turno = 1;
-        while (pos < 30){
+        // Padre maneja los turnos hasta que un jugador haya ganado (llegado a la posición 30)
+        while (newPos < sizeBoard){
             // Inicialización del turno, los jugadores (hijos) esperaran hasta que 
-            strcpy(dados, "0");
-            memcpy(shmem2, dados, sizeof(dados)); // Se inicializa en 0. El hijo recibe respuesta cuando toma cualquier valor entre 1 y 6.
-
-            printf("Turno del jugador número %d\n", turno);
+            printf("Turno del jugador número: %d.\n", turno);
 
             // Comunicaciones entre padre e hijo usando memoria compartida para envíar y recibir información de la jugada.
             sprintf(player, "%d", turno);  
-            memcpy(shmem, player, sizeof(player)); // copia en memoria compartida 1 el número del jugador que tiene que jugar.
+            memcpy(shmem, player, sizeof(player));  // copia en memoria compartida 1 el número del jugador que tiene que jugar.
 
-            while(strcmp(shmem, "0") != 0){};   // shmem es 0 cuando el el jugador correspondiente le responde al padre.
-            sleep(1);
-            printf("El jugador %s ha respondido, hora de lanzar los dados!\n\n", player);
-            
-            roll = (rand() % 6) + 1;
-            printf("Ha salido el número %d.\n\n", roll);
-            sleep(1);
-            
-            sprintf(dados, "%d", roll);  
-            memcpy(shmem2, dados, sizeof(dados)); // copia en memoria compartida 2 el número arrojado por los dados.
-            
-            while(strcmp(shmem, "-1") != 0){};   // shmem es -1 cuando el el jugador correspondiente termina su jugada.
+            while(strcmp(shmem2, "1") != 0){};      // shmem2 es "1" cuando el el jugador correspondiente termina su jugada.
 
-            strcpy(position, shmem3);
-            sscanf(position, "%d", &pos);
+            memcpy(shmem2, &lock, sizeof(lock));     // restablece el valor de la verificación a "0" para el siguiente jugador.
+
+            strcpy(position, shmem3);               // antes de terminar la jugada, el jugador guarda su posición en la memoria compartida 3.
+            sscanf(position, "%d", &newPos);
 
             printf("El jugador %s ha terminado su turno.\n\n", player);
+            printf("----------------------------------------\n\n");
             sleep(2);
             turno += 1;
             if (turno > 4)
@@ -95,28 +106,53 @@ int main(){
         printf("El jugador %s ha ganado, felicidades!.\n\n", player);  
         memcpy(shmem, fin, sizeof(fin)); // notifica a los hijos mostrándoles un "5" que terminó la partida.
         sleep(2);  
-        for(i = 0; i < 5; i++){}; // espera a que los hijos terminen sus procesos.
+        while ((wpid = wait(&status)) > 0); // espera a que los hijos terminen sus procesos.
+
+        // Borra el tablero.    
+        clear(Tablero);
+        // Se libera la memoria del Tablero
+        shmdt ((char *)Tablero);
+        shmctl (idTablero, IPC_RMID, (struct shmid_ds *)NULL);
     }
     else {
+        // Hijos juegan
         sprintf(id, "%d", getpid() - getppid());  
         while(1){
             sleep(1);
-            strcpy(player, shmem);
+            strcpy(player, shmem);  // shmem guarda el n° del jugador que debe jugar (turno)
             if (strcmp(player, id) == 0){
+
+                // Cambia el turno guardado en memoria compartida para que sea "0" 
+                // evita que el jugador vuelva a entrar al terminar de iterar.
+                memcpy(shmem, &lock, sizeof(lock));
+
                 printf("Soy el jugador número %s y es mi turno.\n", id);
-                strcpy(validation, "0"); // si le toca al jugador, notifica al padre enviándole un 0.
-                memcpy(shmem, &validation, sizeof(validation));
-                while(strcmp(shmem2, "0") == 0){}; // Espera hasta que el padre le envíe el valor de los dados
-                strcpy(dados, shmem2);
-                strcpy(validation, "-1");
-                sscanf(dados, "%d", &roll);
-                pos+=roll;
-                printf("Soy el jugador número %s y quedé en la posición %d.\n", id, pos);
+                srand((int)time(&t) % getpid()); // evita que todos los procesos tiren el mismo número "random";
+                roll = (rand() % 6) + 1;
+                printf("Valor de los dados: %d.\n", roll);
+                newPos = oldPos + roll;
+
+                // verifica que no se salga del tablero
+                if(newPos > 28)
+                    newPos = 28;
+
+                sleep(1);
+                // jugador actualiza su posición en el Tablero ubicado en memoria compartida.
+                actualizarPosicion(Tablero, getpid() - getppid(), oldPos, newPos);
+
+                oldPos = newPos;
+
+                printTablero(Tablero);
+
+                printf("\n\nSoy el jugador número %s y quedé en la posición %d del tablero.\n", id, newPos + 1);
                 
-                // Envía posición y validación al padre para terminar el turno
-                sprintf(position, "%d", pos);  
+                // Guarda la nueva posición en memoria compartida
+                sprintf(position, "%d", newPos);  
                 memcpy(shmem3, &position, sizeof(position));
-                memcpy(shmem, &validation, sizeof(validation));
+
+                // Guarda el string "1" en memoria compartida, indicando que terminó su turno
+                strcpy(validation, "1");
+                memcpy(shmem2, &validation, sizeof(validation));
                 sleep(1);
 
             }
@@ -127,9 +163,6 @@ int main(){
         }
     }
 
-    
-
-    
     printf("Soy %d y me fui a mimir.\n", getpid());
     return 0;
 }           

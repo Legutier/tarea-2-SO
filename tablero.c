@@ -1,6 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include "tablero.h"
 
 
@@ -68,10 +65,15 @@ void init(struct tablero *a){
 
 // libera la memoria del tablero y de sus casilleros
 void clear(struct tablero *a){
+    int idCasillero;
     while(a->head != NULL){
         a->actual = a->head;
         a->head = a->head->next;
-        free(a->actual); // Se libera el casillero
+        idCasillero = a->actual->idMemoria;
+        // libera la memoria del casillero
+        shmdt ((char *)a->actual);
+		shmctl (idCasillero, IPC_RMID, (struct shmid_ds *)NULL);
+        // free(a->actual); // Se libera el casillero
     }
     a->actual = NULL;
     a->head = NULL;
@@ -82,11 +84,22 @@ void clear(struct tablero *a){
 
 // agrega un nuevo casillero al tablero
 void append(struct tablero *a, int players[4], char flecha[4], char eventos[6]){
-    struct casillero *aux = (struct casillero*)malloc(sizeof(struct casillero));
+	
+	int idCasillero;
+    struct casillero *aux;
+
+    // guarda una dirección de memoria con tamaño suficiente para el struct tablero
+    idCasillero = shmget(IPC_PRIVATE,sizeof(struct casillero),IPC_CREAT | 0666); 
+
+    // Asigna la dirección de memoria antes guardada para el struct tablero
+    aux = (struct casillero*) shmat(idCasillero, 0, 0);
+
     aux->next=NULL;
     updatePlayer(aux, players);
-    updateEvento(aux, eventos);
-    updateFlechas(aux, flecha);
+    strcpy(aux->eventos, eventos); // actualiza los eventos del casillero
+    strcpy(aux->flecha, flecha); // actualiza las flechas del casillero
+     
+
     if (a->length == 0){
         a->head = aux;
         a->tail = aux;
@@ -98,22 +111,14 @@ void append(struct tablero *a, int players[4], char flecha[4], char eventos[6]){
         a->tail = aux;
     }
     a->length++;
+    aux->numero = a->length; // actualiza numero de casillero
+
 }
 
 // actualiza el arreglo players del casillero
 void updatePlayer(struct casillero *a, int jugadores[4]){
 	for (int i = 0; i < 4; i++)
 		a->players[i] = jugadores[i];
-}
-
-// actualiza los eventos del casillero
-void updateEvento(struct casillero *a, char eventos[6]){
-	strcpy(a->eventos, eventos);
-}
-
-// actualiza las flechas del casillero
-void updateFlechas(struct casillero *a, char flecha[4]){
-	strcpy(a->flecha, flecha);
 }
 
 // imprime el tablero en la consola
@@ -178,11 +183,31 @@ void printRow(struct tablero *a, int start, int columns, int step){
     	printf("┌───────┐");
     printf("\n");
 
+    // Espacio con el número del casillero
+    for(i = 0; i < fill; i++)
+    	printf("         ");
+    for(i = 0; i < columns; i++){
+    	printf("│%s 0", a->actual->flecha);
+
+    	if(a->actual->numero < 10)
+    		printf("0");
+    	
+    	printf("%d %s│", a->actual->numero, a->actual->flecha);
+
+    	if(step == 1)
+    		a->actual = a->actual->next;
+    	else
+    		a->actual = a->actual->prev;
+    }
+    printf("\n");
+    a->actual = aux;
+    
+
     // Espacio de eventos
     for(i = 0; i < fill; i++)
     	printf("         ");
     for(i = 0; i < columns; i++){
-    	printf("│%s%s%s│", a->actual->flecha, a->actual->eventos, a->actual->flecha);
+    	printf("│ %s │", a->actual->eventos);
     	if(step == 1)
     		a->actual = a->actual->next;
     	else
@@ -239,15 +264,4 @@ void actualizarPosicion(struct tablero*a, int player, int oldPos, int newPos){
 		a->actual = a->actual->next;
 	a->actual->players[player - 1] = 1; // agrega al jugador a la posición nueva
 	a->actual = a->head;
-}
-
-
-int main(){
-    struct tablero *tablero = (struct tablero*)malloc(sizeof(struct tablero));
-    init(tablero);
-
-    printTablero(tablero);
-    clear(tablero);
-    free(tablero);
-    return 0;
 }
