@@ -111,6 +111,8 @@ int main(){
     printf("Ingrese el número del jugador que desea controlar: ");
     scanf("%d", &human);
     printf("\n\n");
+    if(human == 5)
+        printf("---------Debug mode enabled, controlará las acciones de todos los jugadores.---------\n\n\n");
 
 
     // Forks
@@ -179,13 +181,17 @@ int main(){
         shmctl (idSwap, IPC_RMID, (struct shmid_ds *)NULL);
     }
     else { // Hijos juegan
-
-        // Si es 0, le pregunta al jugador si quiere activar los efectos. La cpu toma el valor 1 por default (no pregunta)
-        if (human == getpid() - getppid())
+        // ---------------------------------
+        // DEBUG
+        if(human == 5) 
+            human = getpid() - getppid(); // permite controlar a los 4 jugadores
+        //--------------------------------
+        // Si activate es 0, le preguntará al jugador si quiere activar los efectos. La cpu toma el valor 1 por default (no pregunta)
+        if (human == getpid() - getppid()) 
             activate = 0;
         else
             activate = 1;
-        
+
         sprintf(id, "%d", getpid() - getppid());  
         while(1){
             strcpy(player, shmem);  // shmem guarda el n° del jugador que debe jugar (turno)
@@ -225,7 +231,8 @@ int main(){
                         deactivateSwap(swap);
                     }
                     else if(swap[1] == getpid() - getppid()){ // jugador afectado por swap
-                        posicion = actualizarPosicion(Tablero, getpid() - getppid(), posicion, swap[2] - posicion); 
+                        roll = adjustMovement(Tablero, swap[2] - posicion);
+                        posicion = actualizarPosicion(Tablero, getpid() - getppid(), posicion, roll); 
                         numeroTablero = getNumero(Tablero, posicion);
                         printTablero(Tablero);
                         if (human == getpid() - getppid())
@@ -258,28 +265,34 @@ int main(){
                     // jugador obtiene los efectos de la casilla 
                     getEfectos(Tablero, posicion, efectos);
                     
-                    if (efectos[0] == 0){ // sin efectos
+                    // mensajes relacionados a los efectos de la casilla
+                    if (efectos[0] == 0) // sin efectos
                         printf("La casilla número %d no tiene efectos.\n", numeroTablero);
-                        //--------------
-                        // para probar intercambio con primer lugar: cambiar 0 por 1.
-                        // printf("DEBUG: swap ultimo lugar\n\n");
-                        // posicion = activateSwap(Tablero, swap, 0, posicion, human);
-                        // printf("DEBUG: avanzar a la siguiente casilla en blanco tras revertir tblero\n");
-                        // reverseBoard(Tablero);
-                        // int debug[] = {1, 0, 0}; //debug[1] = cant. espacios a mover, if 0 -> white space
-                        // posicion = activarEfectoMovimiento(Tablero, debug, getpid() - getppid(), posicion);
-                        // printTablero(Tablero);
-                    }
-                    else if(efectos[0] == 1){  // efectos de 1 signo ?
-                        printf("La casilla número %d tiene efectos del tipo ?.\n\n", numeroTablero);
-                        if (activate == 0){
-                            printf("¿Quieres activar el efecto ? de éste casillero?\n");
-                            printf("Ingresa 1 para activarlo, 0 para ignorarlo: ");
-                            scanf("%d", &activate);
-                            printf("\n");
-                        }
-                        sleep(2);
 
+                    else if(efectos[0] == 1)
+                        printf("La casilla número %d tiene efectos del tipo ?.\n\n", numeroTablero);
+
+                    else if(efectos[0] == 2)
+                        printf("La casilla número %d tiene efectos del tipo ??.\n\n", numeroTablero);
+                    sleep(2);
+
+                    if (activate == 0 && efectos[0] != 0){
+                        if (efectos[0] == 1)
+                            printf("¿Quieres activar el efecto ? de ésta casilla?\n");
+                        else if(efectos[0] == 2)
+                            printf("¿Quieres activar el efecto ?? de ésta casilla?\n");
+
+                        printf("Ingresa 1 para activarlo, 0 para ignorarlo: ");
+    
+                        scanf("%d", &activate);
+                        printf("\n");
+                        if(activate == 2){  
+                            debugMode(efectos);
+                            activate = 1;
+                        }
+                    }
+
+                    if(efectos[0] == 1){  // efectos de 1 signo ?
                         if (activate == 1){
                             if (efectos[1] == 0){ // block next player
                                 printf("Efecto ? activado: el siguiente jugador pierde su turno.\n");
@@ -291,24 +304,24 @@ int main(){
                             }
                             else if(efectos[1] == 2){ // efecto de movimiento
                                 if (efectos[2] == 0){ // afecta solo al jugador
-                                    if(efectos[3] == 1)
+                                    if(efectos[3] > 0)
                                         strcpy(instruccion, "avanzar");
                                     else
                                         strcpy(instruccion, "retroceder");
 
                                     if (human == getpid() - getppid())
-                                        printf("Efecto ? activado: debes %s 1 espacio.\n", instruccion);
+                                        printf("Efecto ? activado: debes %s %d espacio.\n", instruccion, efectos[3]);
                                     else
-                                        printf("Efecto ? activado: el jugador %s debe %s 1 espacio.\n", id, instruccion);
+                                        printf("Efecto ? activado: el jugador %s debe %s %d espacio.\n", id, instruccion, efectos[3]);
                                     sleep(3);
                                     posicion = actualizarPosicion(Tablero, getpid() - getppid(), posicion, efectos[3]); // efectos[3] guarda la cantidad de espacios a mover (-1, 1)
                                     numeroTablero = getNumero(Tablero, posicion);
 
                                     printTablero(Tablero);
                                         if (human == getpid() - getppid())
-                                        printf("Quedaste en la casilla %d tras %s 1 espacio debido al efecto activado.\n", numeroTablero, instruccion);
+                                        printf("Quedaste en la casilla %d tras %s %d espacio debido al efecto activado.\n", numeroTablero, instruccion, efectos[3]);
                                     else
-                                        printf("El jugador %s quedó en la casilla %d tras %s 1 espacio debido al efecto activado.\n", id, numeroTablero, instruccion);     
+                                        printf("El jugador %s quedó en la casilla %d tras %s %d espacio debido al efecto activado.\n", id, numeroTablero, instruccion, efectos[3]);     
                                 }
                                 else if(efectos[2] == 1){ // afecta a los demás
                                     printf("Efecto ? activado: los demás jugadores deberán retroceder 1 espacio.\n");
@@ -320,21 +333,18 @@ int main(){
                             }
                         }
                         else
-                            printf("Has ignorado el efecto ? de éste casillero.\n");
+                            printf("Has ignorado el efecto ? de ésta casilla.\n");
                         sleep(1);    
                     }
                     else if(efectos[0] == 2){ // efectos de dos signos ??
-                        printf("La casilla número %d tiene efectos del tipo ??.\n\n", numeroTablero);
-                        if (activate == 0){
-                            printf("¿Quieres activar el efecto ?? de éste casillero?\n");
-                            printf("Ingresa 1 para activarlo, 0 para ignorarlo: ");
-                            scanf("%d", &activate);
-                            printf("\n");
-                        }
-                        sleep(1);
                         if (activate == 1){
                             if (efectos[1] == 0){ // todos los jugadores se mueven
-                                printf("Efecto ?? activado: todos los jugadores deben retroceder 2 espacios.\n");
+                                if(efectos[3] > 0)
+                                    strcpy(instruccion, "avanzar");
+                                else
+                                    strcpy(instruccion, "retroceder");
+
+                                printf("Efecto ?? activado: todos los jugadores deben %s %d espacios.\n", instruccion, efectos[2]);
                                 posicion = actualizarPosicion(Tablero, getpid() - getppid(), posicion, efectos[2]);
                                 numeroTablero = getNumero(Tablero, posicion);
                                 
@@ -361,7 +371,6 @@ int main(){
                                     printf("El jugador %s tiene que cambiar posiciones con el jugador en el último lugar.\n\n", id); 
                                 sleep(2);
                                 posicion = activateSwap(Tablero, swap, 0, posicion, human);
-
                             }
                             else if (efectos[1] == 3){ // swap con primer lugar                                
                                 if (human == getpid() - getppid())
@@ -374,18 +383,18 @@ int main(){
                             }
                             else if (efectos[1] == 4){ // invertir sentido del tablero                                
                                 reverseBoard(Tablero);
-                                printf("El tablero ha sido invertido debido al efecto del casillero.\n\n");
+                                printf("El tablero ha sido invertido debido al efecto de la casilla.\n\n");
                                 sleep(2);
                                 printf("----------------------------------------\n\n");
                                 printTablero(Tablero);
                             }
                         }
                         else
-                            printf("Has ignorado el efecto de éste casillero.\n");
+                            printf("Has ignorado el efecto ?? de ésta casilla.\n");
                         sleep(2);        
                     }
 
-                    if (human == getpid() - getppid())
+                    if (human == getpid() - getppid()) // 
                         activate = 0;
                     else
                         activate = 1;

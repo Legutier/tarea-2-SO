@@ -36,5 +36,7 @@ int activarEfectoMovimiento(struct tablero *Tablero, int *efecto, int player, in
 void blockNextPlayer(int *efecto);
 void unblockPlayer(int *efecto, int human);
 int activateSwap(struct tablero *Tablero, int *swap, int lugar, int posicion, int human);
+int adjustMovement(struct tablero *a, int espacios);
 void deactivateSwap(int *swap);
 int checkGanador(struct tablero *a);
+void debugMode(int *efectos);

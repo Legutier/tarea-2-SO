@@ -277,10 +277,8 @@ void printRow(struct tablero *a, int start, int columns, int step){
 // actualiza la posición de un jugador en el tablero (borra la antigua, agrega la nueva)
 int actualizarPosicion(struct tablero *a, int player, int actualPos, int dados){
 	int i, newPos;
-	if (a->reverse == 0) // flujo normal
-		newPos = actualPos + dados;
-	else // flujo inverso
-		newPos = actualPos - dados;
+	dados = adjustMovement(a, dados);
+	newPos = actualPos + dados;
 
 	if (newPos > a->length - 1)
 		newPos = a->length - 1;
@@ -568,18 +566,22 @@ void unblockPlayer(int *efecto, int human){
     efecto[1] = -1;
     efecto[2] = -1;
     if (human == getpid() - getppid())
-        printf("Tu turno ha sido bloqueado, por lo que no puedes jugar en esta ronda.\n");
+        printf("Tu turno ha sido bloqueado, no puedes jugar en esta ronda.\n");
     else
-        printf("El turno del jugador %d ha sido bloqueado, por lo que no puede jugar en esta ronda.\n", getpid() - getppid());
+        printf("El turno del jugador %d ha sido bloqueado, no puede jugar en esta ronda.\n", getpid() - getppid());
     sleep(2);
 }
 
 // activa el intercambio de jugadores. si lugar = 0, cambia con último lugar, si 1, con el primero
 int activateSwap(struct tablero *Tablero, int *swap, int lugar, int posicion, int human){
+	int espacios;
     swap[0] = getpid() - getppid(); // player que provoca el cambio
     swap[1] = getPlayer(Tablero, lugar); // player afectado
     swap[2] = posicion; // posición a la que se deberá mover el player afectado
     char interes[20];
+    espacios = getPosicion(Tablero, swap[1]) - posicion;
+	espacios = adjustMovement(Tablero, espacios);
+	   
 
     if (lugar == 0)
     	strcpy(interes, "último");
@@ -587,12 +589,13 @@ int activateSwap(struct tablero *Tablero, int *swap, int lugar, int posicion, in
     	strcpy(interes, "primer");
 
     if(swap[1] != getpid() - getppid()){
-        posicion = actualizarPosicion(Tablero, getpid() - getppid(), posicion, getPosicion(Tablero, swap[1]) - posicion);
+    	// printf("DEBUG: posición destino = %d, posición source = %d\n",getPosicion(Tablero, swap[1]), posicion);
+        posicion = actualizarPosicion(Tablero, getpid() - getppid(), posicion, espacios);
         printTablero(Tablero);
         if (human == getpid() - getppid())
-            printf("Te has movido a la casilla número %d correspondiente a la %s del último lugar.\n", getNumero(Tablero, posicion), interes);
+            printf("Te has movido a la casilla número %d correspondiente a la posición del jugador %d, quién está en %s lugar.\n", getNumero(Tablero, posicion), swap[1], interes);
         else
-            printf("El jugador %d se ha movido a la casilla número %d correspondiente a la posición del %s lugar.\n", swap[0], getNumero(Tablero, posicion), interes); 
+            printf("El jugador %d se ha movido a la casilla número %d correspondiente a la posición del jugador %d, quién está en %s lugar.\n", swap[0], getNumero(Tablero, posicion), swap[1], interes); 
     }
     else{
         if (human == getpid() - getppid())
@@ -605,6 +608,13 @@ int activateSwap(struct tablero *Tablero, int *swap, int lugar, int posicion, in
         
     }
     return posicion;
+}
+
+// ajusta la cantidad de espacios que se moverá un jugador según el sentido del tablero
+int adjustMovement(struct tablero *a, int espacios){
+	if (a->reverse == 1)
+		return (espacios * -1);
+	return espacios;
 }
 
 // desactiva el intercambio de jugadores (se activa después de aplicar el intercambio)
@@ -630,4 +640,128 @@ int checkGanador(struct tablero *a){
 	}
 	a->actual = a->head;
 	return 0;
+}
+
+void debugMode(int *efectos){
+    int input, x;
+    printf("\n------------------------------------------\n");
+    printf("\n\nHas entrado en el Debug Menu del juego.\n\n");
+    printf("     1 - Retroceder una casilla.\n");
+    printf("     2 - Los demás retroceden una casilla.\n");
+    printf("     3 - Avanzar una casilla.\n");
+    printf("     4 - Bloquear al siguiente jugador.\n");
+    printf("     5 - Cambiar sentido de los turnos.\n");
+    printf("     6 - Todos retroceden 2 espacios.\n");
+    printf("     7 - Los demás avanzan hasta su próximo espacio en blanco.\n");
+    printf("     8 - Cambiar posición con el jugador en último lugar.\n");
+    printf("     9 - Cambiar posición con el jugador en primer lugar.\n");
+    printf("    10 - Cambiar el sentido del tablero.\n");
+    printf("    11 - Avanzar x casillas.\n");
+    printf("    12 - Todos avanzan x casillas.\n");
+    printf("    Otro número - Volver al juego.\n");
+
+    printf("Ingresa el número de la opción que quiera ejecutar: ");
+    scanf("%d", &input);
+    printf("\n");
+
+    // efectos de casillas con ?
+    if (input == 1){
+    	efectos[0] = 1;
+    	efectos[1] = 2;
+    	efectos[2] = 0;
+    	efectos[3] = -1;
+    }
+
+    else if (input == 2){
+    	efectos[0] = 1;
+    	efectos[1] = 2;
+    	efectos[2] = 1;
+    	efectos[3] = -1;
+    }
+
+    else if (input == 3){
+    	efectos[0] = 1;
+    	efectos[1] = 2;
+    	efectos[2] = 0;
+    	efectos[3] = 1;
+    }
+
+    else if (input == 4){
+    	efectos[0] = 1;
+    	efectos[1] = 0;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    else if (input == 5){
+    	efectos[0] = 1;
+    	efectos[1] = 1;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    // efectos de casillas con ??
+    else if (input == 6){
+    	efectos[0] = 2;
+    	efectos[1] = 0;
+    	efectos[2] = -2;
+    	efectos[3] = 0;
+    }
+
+    else if (input == 7){
+    	efectos[0] = 2;
+    	efectos[1] = 1;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    else if (input == 7){
+    	efectos[0] = 2;
+    	efectos[1] = 1;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    else if (input == 8){
+    	efectos[0] = 2;
+    	efectos[1] = 2;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    else if (input == 9){
+    	efectos[0] = 2;
+    	efectos[1] = 3;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    else if (input == 10){
+    	efectos[0] = 2;
+    	efectos[1] = 4;
+    	efectos[2] = 0;
+    	efectos[3] = 0;
+    }
+
+    // extras
+
+    else if (input == 11){
+	    printf("Ingresa la cantidad de espacios que quieres avanzar (puede ser negativo): ");
+	    scanf("%d", &x);
+    	printf("\n");
+    	efectos[0] = 1;
+    	efectos[1] = 2;
+    	efectos[2] = 0;
+    	efectos[3] = x;
+    }
+
+    else if (input == 12){
+	    printf("Ingresa la cantidad de espacios que deben avanzar todos los jugadores (puede ser negativo): ");
+	    scanf("%d", &x);
+    	printf("\n");
+    	efectos[0] = 2;
+    	efectos[1] = 0;
+    	efectos[2] = x;
+    	efectos[3] = 0;
+    }
 }
