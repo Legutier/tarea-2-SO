@@ -44,10 +44,16 @@ int main(){
     char fin[] = "5";
     char instruccion[20]; // guarda el string "avanzar" o "retroceder" según el tipo de efecto activado (estético)
 
-    // variables usadas para memoria compartida
     char player[5];
-    char validation[5];
 
+    // pipes
+    int pipe1x[2];  // se crean los arreglos que guarden mensajes entre el padre y los jugadores 
+    int pipex1[2];
+
+    pipe(pipe1x); // se inicia la pipe entre padre y jugador x
+    pipe(pipex1); // se inicia la pipe entre jguador x y padre
+
+    // variables usadas para memoria compartida
     int idTurno;
     int *turno;
 
@@ -66,7 +72,7 @@ int main(){
     // -------------------------------
     // Crea espacios de memoria compartida para variables de jugadores
     void* shmem = create_shared_memory(5);  // Transmite los turnos (player) 
-    void* shmem2 = create_shared_memory(5); // Transmite la validación (validation) de los jugadores
+
     
     
     idTablero = shmget(IPC_PRIVATE,sizeof(struct tablero),IPC_CREAT | 0666); // guarda una dirección de memoria con tamaño suficiente para el struct tablero
@@ -123,6 +129,9 @@ int main(){
     }
 
     if (pid > 0){
+        close(pipe1x[0]);  // cierro el modo de LECTURA ya que esta sólo la utilizo para ENVIAR mensajes        
+        close(pipex1[1]);  // cierro el modo de ESCRITURA ya que sólo la utilizo para RECIBIR mensajes
+
         *turno = 0;
         *sentido = 1;   // turnos de izquierda a derecha
         int ganador = 0; // int con el número del jugador ganador.
@@ -139,10 +148,10 @@ int main(){
             sprintf(player, "%d", orden[*turno]);  
             memcpy(shmem, player, sizeof(player));  // copia en memoria compartida 1 el número del jugador que tiene que jugar.
 
-            while(strcmp(shmem2, "1") != 0){};      // shmem2 es "1" cuando el el jugador correspondiente termina su jugada.
-
-            memcpy(shmem2, &lock, sizeof(lock));     // restablece el valor de la verificación a "0" para el siguiente jugador.
-
+            // Espera que el hijo le mande la confirmación de que terminó su turno usando pipes
+            char mensaje;
+            while((read(pipex1[0],&mensaje,1))<0){}; //espero por la respuesta que envía el hijo al terminar el turno
+            
             if(efecto[0] == 0 && swap[0] == 0)
                 printf("El jugador %s ha terminado su turno.\n\n", player);
 
@@ -181,6 +190,8 @@ int main(){
         shmctl (idSwap, IPC_RMID, (struct shmid_ds *)NULL);
     }
     else { // Hijos juegan
+        close(pipe1x[1]); // cierro el modo de LECTURA de la pipex1 ya que esta pipe en el proceso hijo sólo la utilizo para ENVIAR mensajes        
+        close(pipex1[0]);  // cierro el modo de ESCRITURA de la pipe1x ya que en el proceso hijo sólo la utilizo para RECIBIR mensajes       
         // ---------------------------------
         // DEBUG
         if(human == 5) 
@@ -399,9 +410,10 @@ int main(){
                     else
                         activate = 1;
                 }
-                // Guarda el string "1" en memoria compartida, indicando que terminó su turno
-                strcpy(validation, "1");
-                memcpy(shmem2, &validation, sizeof(validation));
+                // Envía confirmación de que terminó el turno al padre mediante pipes
+                char mensaje = '1';
+                write(pipex1[1],&mensaje,1);  // pongo el mensaje en la pipe  
+
             }
             // Cuando termine el juego el padre colocara el turno "5" en memoria para que los hijos terminen
             if(strcmp(player, fin) == 0){
